@@ -15,9 +15,10 @@
 mod client;
 mod server;
 
-use crate::raft_node::NodeId;
+use crate::raft_node::{NodeId, RaftNetworkMsg};
 use async_channel::{unbounded, Receiver, Sender};
 use async_std::task;
+use futures::StreamExt;
 use halfbrown::HashMap;
 use slog::Logger;
 
@@ -35,7 +36,7 @@ pub(crate) enum UrMsg {
     RegisterRemote(NodeId, String, Sender<WsMessage>),
     DownLocal(NodeId),
     DownRemote(NodeId),
-    //Status(RequestId, Sender<WsMessage>),
+    Status(RequestId, Sender<WsMessage>),
 }
 
 // TODO this will be using the websocket driver for the tremor network protocol
@@ -98,7 +99,7 @@ pub struct Network {
     pub endpoint: String,
     /// blah
     pub logger: Logger,
-    //rx: Receiver<UrMsg>,
+    rx: Receiver<UrMsg>,
     //tx: Sender<UrMsg>,
     //next_eid: u64,
     //pending: HashMap<EventId, Reply>,
@@ -109,7 +110,7 @@ impl Network {
     /// blah
     pub fn new(logger: &Logger, id: NodeId, endpoint: String, peers: Vec<String>) -> Self {
         // exchanges UrMsg
-        let (tx, _rx) = unbounded();
+        let (tx, rx) = unbounded();
 
         // initial peer connections
         for peer in peers {
@@ -139,7 +140,7 @@ impl Network {
             id,
             endpoint,
             //tx,
-            //rx,
+            rx,
             logger: logger.clone(),
             known_peers: HashMap::new(),
             //local_mailboxes: HashMap::new(),
@@ -147,6 +148,29 @@ impl Network {
             //next_eid: 1,
             //pending: HashMap::new(),
             //prot_pending: HashMap::new(),
+        }
+    }
+
+    pub async fn next(&mut self) -> Option<RaftNetworkMsg> {
+        let msg = if let Some(msg) = self.rx.next().await {
+            msg
+        } else {
+            return None;
+        };
+        match msg {
+            UrMsg::InitLocal(endpoint) => {
+                info!("Initializing local endpoint");
+                endpoint
+                    .send(WsMessage::Ctrl(CtrlMsg::Hello(
+                        self.id,
+                        self.endpoint.clone(),
+                    )))
+                    .await
+                    .unwrap();
+                self.next().await
+            }
+            UrMsg::Status(rid, reply) => Some(RaftNetworkMsg::Status(rid, reply)),
+            _ => unimplemented!(),
         }
     }
 }

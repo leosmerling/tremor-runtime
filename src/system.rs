@@ -685,6 +685,7 @@ impl World {
 
         let repo = Repositories::new();
         let reg = Registries::new();
+        // FIXME eliminate
         let (raft_tx, raft_rx) = unbounded();
         let mut world = Self {
             raft: raft_tx,
@@ -709,7 +710,7 @@ impl World {
         dbg!(&network.id);
         dbg!(&network.logger);
         dbg!(&network.known_peers);
-        start_raft(node_id, cluster_bootstrap, logger, raft_rx).await;
+        start_raft(node_id, cluster_bootstrap, logger, network).await;
 
         world.register_system().await?;
         Ok((world, system_h))
